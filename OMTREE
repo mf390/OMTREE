@@ -1,0 +1,484 @@
+/*%NOCOMMENT rexx ******************************************************
+*                                                                      *
+* Program: OMTREE                                                      *
+*                                                                      *
+* Syntax: OMTREE with no parameter or one of the following:            *
+*          GRAPHIC - nice looking                                      *
+*          CHAR - normal characters                                    *
+*          nothing - will do it's best                                 *
+*                                                                      *
+* Function: Shows you the names, mountpoints and permission schemes of *
+*           all mounted filesystems. Press PF1 for help                *
+*                                                                      *
+* Calls: OMTREE1 Panel, OMTREEH Panel                                  *
+*                                                                      *
+* Called:                                                              *
+*                                                                      *
+* Created: I really wish I knew.                                       *
+*                                                                      *
+* Notes:                                                               *
+*                                                                      *
+************************************************************************
+* Updates:                                                             *
+* 12/03/2022 SJW - Changed to use zfs instead of hfs                   *
+*                                                                      *
+* Version 1.0.0 *******************************************************/
+Arg options                                                             
+Call tool_start                         /* System and debug variables*/ 
+Call tool_wrapup                        /* Lets go home|             */ 
+                                                                        
+/* ************************************************************ *       
+ * Main routine, also set up a number of constants and          *       
+ * variables that will be used during the run (if necessary).   *       
+ * ************************************************************ */      
+tool_start:                                                             
+src = 0                                                                 
+Address Tso                                                             
+Parse Upper Var options mode                                            
+If Wordpos(mode,'GRAPHIC DEFAULT CHAR') > 0 Then disp_mode = mode      
+Else disp_mode = ''                                                    
+Call Syscalls 'ON'                                                     
+Address Syscall 'GETMNTENT FILES.'                                     
+Address Tso                                                            
+highest = 0                                                            
+Do i = 1 To files.0                                                    
+  files.mnte_fsname.i = Strip(files.mnte_fsname.i,'B',' ')             
+  children.i = ''                                                      
+  drawn.i = 'NO'                                                       
+  dev = files.mnte_dev.i                                               
+  dev_el.dev = i                                                       
+End                                                                    
+Do i = 1 To files.0                                                    
+  level = 0                                                            
+  mom_found.i = 'NO'                                                   
+  parent = files.mnte_pardev.i                                         
+  Do While parent ^= 0                                                 
+    level = level + 1                                                  
+    If level > highest Then highest = level                            
+    parnti = dev_el.parent                                             
+    parent = files.mnte_pardev.parnti                                  
+    If mom_found.i ^= 'YES' Then children.parnti = children.parnti' 'i 
+    mom_found.i = 'YES'                                                
+  End                                                                  
+  level.i = level + 1                                                  
+End                                                                    
+highest = highest + 1                                                  
+Do i = 1 To files.0                                                    
+  Call draw_boxes i level.i                                            
+End                                                                    
+Do i = 1 To highest                                                    
+  pos_on_level.i = ''                                                  
+End                                                                    
+scrl = 0                                                               
+Call build_family                                                      
+Do j = 2 To highest                                                    
+  Do k = 1 To box.0                                                    
+    pnlline.k = ''                                              
+  End                                                           
+  a = j - 1                                                     
+  Do i = 1 To Words(realparnt.j)                                
+    motherdev = Word(realparnt.j,i)                             
+    mother = dev_el.motherdev                                   
+    pos_on_level.a = pos_on_level.a' 'mother                    
+    drawn.mother = 'YES'                                        
+    If motherdev > 0 Then Do k = 1 To box.0                     
+      pnlline.k = pnlline.k' 'box.mother.k                      
+    End                                                         
+  End                                                           
+  Do k = 1 To box.0                                             
+    scrl = scrl + 1                                             
+    scrline.scrl = pnlline.k                                    
+  End                                                           
+End                                                             
+savescrl = scrl                                                 
+scrl = 0                                                        
+Do j = 1 to highest                                             
+  Do k = 1 to box.0                                             
+    pnlline.k = ''                                              
+  End                                                           
+  Do i = 1 To Words(sisterstr.j)                                
+    elem = Word(sisterstr.j,i)                                  
+    If drawn.elem = 'NO' Then Do                                
+      pos_on_level.j = pos_on_level.j' 'elem                    
+      Do k = 1 To box.0                                         
+        pnlline.k = pnlline.k' 'box.elem.k                      
+      End                                                       
+    End                                                         
+  End                                                           
+  Do k = 1 To box.0                                             
+    scrl = scrl + 1                                             
+    If scrl > savescrl Then scrline.scrl = pnlline.k            
+    Else scrline.scrl = scrline.scrl''pnlline.k                 
+    scrline.scrl = Strip(scrline.scrl,'B',' ')                  
+  End                                                           
+End                                                                       
+scrline.0 = scrl                                                          
+dyndisp = ''                                                              
+Address Ispexec 'PQUERY PANEL(OMTREE1) AREANAME(DYNDISP)' ,               
+ 'AREATYPE('atypname') WIDTH('dynwidth') DEPTH('dyndepth')' ,             
+  'ROW('arowname '), COLUMN('acolname')'                                  
+dynwidth = dynwidth - 1                                                   
+Call draw_lines                                                           
+If disp_mode = '' Then Do                                                 
+  Address Ispexec 'VGET (ZGE ZENVIR)'                                     
+  If zge = 'NO' Then disp_mode = 'CHAR'                                   
+  Else If zenvir < 'ISPF 4.1' Then Do                                     
+    disp_mode = 'DEFAULT'                                                 
+    Address Ispexec 'VGET ZTERM'                                          
+    term_set = zterm                                                      
+    new_set = '3278T'                                                     
+    Address Ispexec 'SELECT PGM(ISPTTDEF) PARM(ISP'new_set')'             
+  End                                                                     
+  Else disp_mode = 'GRAPHIC'                                              
+End                                                                       
+Else Do                                                                   
+  If disp_mode = 'DEFAULT' Then Do                                        
+    Address Ispexec 'VGET ZTERM'                                          
+    term_set = zterm                                                      
+    new_set = '3278T'                                                     
+    Address Ispexec 'SELECT PGM(ISPTTDEF) PARM(ISP'new_set')'             
+  End                                                                     
+End                                                                       
+disp_rc = 0                                                               
+Call build_page 'INIT'                                                    
+Do While disp_rc = 0                                                      
+  old_dyndisp = dyndisp                                                   
+  Address Ispexec 'DISPLAY PANEL(OMTREE1)'                                
+  disp_rc = Rc                                                            
+  If disp_rc = 0 Then Do                                                  
+    selected = Compare(old_dyndisp,dyndisp)                               
+    If selected > 0 Then Do                                               
+      eff_l = selected % (dynwidth + 1)                                   
+      eff_l = flin + eff_l                                               
+      eff_c = selected // (dynwidth + 1)                                 
+      eff_c = fcol + eff_c - 2                                           
+      Do i = 1 to files.0                                                
+        If gridval.i = eff_c' 'eff_l Then Call zoom_zfs                  
+      End                                                                
+    End                                                                  
+    Call build_page 'SHOW'                                               
+  End                                                                    
+End                                                                      
+If disp_mode = 'DEFAULT' Then ,                                          
+ Address Ispexec 'SELECT PGM(ISPTTDEF) PARM(ISP'term_set')'              
+Return                                                                   
+                                                                         
+/* -------------------------------------------------------------- *      
+ *                                                                *      
+ * -------------------------------------------------------------- */     
+draw_boxes:                                                              
+arg curr lv                                                              
+l1 = Length(files.mnte_fsname.curr)                                      
+l2 = Length(files.mnte_path.curr)                                        
+l3 = Length(Copies('40BB'x,(Words(children.curr))))                      
+li4 = ('014002'x) || 'Ishell' || ('03'x)                                 
+l4 = Length(li4)                                                         
+Call zfs_permissions curr                                                
+li5 = Strip(accstr,'B',' ')                                              
+l5 = Length(li5)                                                         
+dsnl = Max(l1,l2,l3,l4,l5)                                               
+box.curr.1 = ('AC'x) || Substr('BF'x,1,dsnl,'BF'x) || ('BC'x)            
+If lv > 1 Then ,                                                         
+ box.curr.1 = ('AC'x) || Centre('CB'x,dsnl,'BF'x) || ('BC'x)             
+box.curr.2 = ('FA'x) || Centre(files.mnte_fsname.curr,dsnl) || ('FA'x)   
+box.curr.3 = ('FA'x) || Centre(files.mnte_path.curr,dsnl) || ('FA'x)     
+box.curr.4 = ('FA'x) || Centre(li4,dsnl) || ('FA'x)                      
+cmdline = 4                                                              
+box.curr.5 = ('FA'x) || Centre(li5,dsnl) || ('FA'x)                      
+box.curr.6 = Copies('40CC'x,(Words(children.curr)))                      
+box.curr.6 = ('AB'x) || Centre(box.curr.6,dsnl) || ('BB'x)               
+box.curr.6 = Translate(box.curr.6,'BF'x,' ')                              
+box.0 = 6                                                                 
+Return                                                                    
+                                                                          
+/* -------------------------------------------------------------- *       
+ *                                                                *       
+ * -------------------------------------------------------------- */      
+build_family:                                                             
+Do j = highest To 1 By -1                                                 
+  parentstr.j = ''                                                        
+  realparnt.j = ''                                                        
+  sisterstr.j = ''                                                        
+  Do i = 1 To files.0                                                     
+    If level.i = j Then Do                                                
+      sisterpos = Wordpos(files.mnte_pardev.i,parentstr.j)                
+      If sisterpos > 0 Then Do                                            
+        sp = Wordindex(parentstr.j,sisterpos) - 1                         
+        filler = files.mnte_pardev.i' '                                   
+        parentstr.j = Insert(filler,parentstr.j,sp)                       
+        ip = Wordindex(sisterstr.j,sisterpos) - 1                         
+        filler = i' '                                                     
+        sisterstr.j = Insert(filler,sisterstr.j,ip)                       
+      End                                                                 
+      Else Do                                                             
+        parentstr.j = parentstr.j' 'files.mnte_pardev.i                   
+        realparnt.j = realparnt.j' 'files.mnte_pardev.i                   
+        sisterstr.j = sisterstr.j' 'i                                     
+      End                                                                 
+    End                                                                   
+  End                                                                     
+End                                                                       
+Return                                                                    
+                                                                          
+/* -------------------------------------------------------------- *       
+ *                                                                *       
+ * -------------------------------------------------------------- */      
+draw_lines:                                                               
+a = 0                                                                     
+grid = 0                                                              
+j = 0                                                                 
+longest_line = 0                                                      
+Do i = 1 To scrline.0                                                 
+  If i = 1 Then Call add_info_box                                     
+  If i <= box.0 Then Do                                               
+    numblks = dynwidth - (Length(scrline.i) + Length(infoline.i))     
+    If numblks >= 0 Then ,                                            
+     scrline.i = (scrline.i) || Substr(' ',1,numblks,' ') || ,        
+      (infoline.i)                                                    
+    Else Do                                                           
+      scrline.i = Substr(scrline.i,1,dynwidth,' ')                    
+      ostrt = dynwidth - Length(infoline.i) + 1                       
+      scrline.i = Overlay(infoline.i,scrline.i,ostrt)                 
+    End                                                               
+  End                                                                 
+  If Length(scrline.i) > longest_line Then ,                          
+   longest_line = Length(scrline.i)                                   
+  a = a + 1                                                           
+  line.a = scrline.i                                                  
+  If i // box.0 = cmdline Then Do                                     
+    grid = grid + 1                                                   
+    currpos = 0                                                       
+    Do k = 1 to Words(pos_on_level.grid)                              
+      currpos = Pos('014002'x,scrline.i,currpos + 1)                  
+      x = Word(pos_on_level.grid,k)                                   
+      gridval.x = currpos + 1' 'a                                     
+    End                                                               
+  End                                                                 
+  If i // box.0 = 0 Then Do                                           
+    j = j + 1                                                         
+    startposstr.j = ''                                                
+    startpos = 0                                                      
+    endposstr.j = ''                                                  
+    endpos = 0                                                        
+    endline.j = ''                                                    
+    c = j + 1                                                         
+    Do Words(pos_on_level.c)                                          
+      startpos = Pos('CC'x,scrline.i,startpos + 1)                  
+      startposstr.j = startposstr.j' 'startpos                      
+      q = i + 1                                                     
+      endpos = Pos('CB'x,scrline.q,endpos + 1)                      
+      endposstr.j = endposstr.j' 'endpos                            
+    End                                                             
+    Do Words(pos_on_level.c)                                        
+      a = a + 1                                                     
+      q = i + 1                                                     
+      line.a = Substr(' ',1,Length(scrline.q),' ')                  
+      Do q = 1 To Words(startposstr.j) - 1                          
+        line.a = Overlay('FA'x,line.a,(Word(startposstr.j,q)))      
+      End                                                           
+      q = Words(startposstr.j)                                      
+      l1 = Word(startposstr.j,q)                                    
+      l2 = Word(endposstr.j,q)                                      
+      linel1 = Max(l1,l2)                                           
+      linel2 = Min(l1,l2)                                           
+      linelen = linel1 - linel2                                     
+      If linelen > 0 Then Do                                        
+        line.a = Overlay('BF'x,line.a,linel2,linelen,'BF'x)         
+        If l1 < l2 Then Do                                          
+          line.a = Overlay('AB'x,line.a,linel2)                     
+          line.a = Overlay('BC'x,line.a,linel1)                     
+        End                                                         
+        Else Do                                                     
+          line.a = Overlay('AC'x,line.a,linel2)                     
+          line.a = Overlay('BB'x,line.a,linel1)                     
+        End                                                         
+      End                                                           
+      Else If j < highest Then line.a = Overlay('FA'x,line.a,linel1)
+      Else Nop                                                      
+      Do b = 1 To Words(endline.j)                                  
+        line.a = Overlay('FA'x,line.a,(Word(endline.j,b)))          
+      End                                                           
+      endline.j = endline.j' 'Word(endposstr.j,q)                   
+      startposstr.j = Delword(startposstr.j,q,1)                    
+      endposstr.j = Delword(endposstr.j,q,1)                        
+    End                                                                  
+  End                                                                    
+End                                                                      
+line.0 = a - 1                                                           
+Return                                                                   
+                                                                         
+/* -------------------------------------------------------------- *      
+ *                                                                *      
+ * -------------------------------------------------------------- */     
+build_page:                                                              
+Arg build_type                                                           
+If build_type = 'INIT' Then Do                                           
+  flin = 1                                                               
+  tlin = line.0                                                          
+  llin = Min(dyndepth,tlin)                                              
+    Address Ispexec 'CONTROL NONDISPL END'                               
+    Address Ispexec 'DISPLAY PANEL(OMTREE1)'                             
+  vlin = Min(dyndepth,vdepth,tlin)                                       
+  fcol = 1                                                               
+  lcol = Min(dynwidth,longest_line)                                      
+  tcol = longest_line                                                    
+End                                                                      
+Else Do                                                                  
+  Address Ispexec 'VGET (ZSCROLLN ZVERB ZSCROLLA)'                       
+  Select                                                                 
+    When zverb = 'UP' Then Do                                            
+      If zscrolla = 'MAX' Then Do                                        
+        flin = 1                                                         
+        llin = Min(dyndepth,tlin)                                        
+        vlin = Min(llin,vdepth)                                          
+      End                                                                
+      Else Do                                                            
+        xl = flin - zscrolln                                             
+        flin = Max(1,xl)                                                 
+        xl = llin - zscrolln                                             
+        If xl <= 0 Then llin = Min(dyndepth,tlin)                        
+        Else Do                                                          
+          xl = flin + dyndepth-1                                         
+          llin = Min(xl,tlin)                                       
+        End                                                         
+        vlin = Min(llin,tlin,(flin+vdepth))                         
+      End                                                           
+    End                                                             
+    When zverb = 'DOWN' Then Do                                     
+      If zscrolla = 'MAX' Then Do                                   
+        flin = tlin - Min(vdepth,dyndepth) + 1                      
+        llin = tlin                                                 
+        vlin = tlin                                                 
+      End                                                           
+      Else Do                                                       
+        xl = flin + zscrolln                                        
+        flin = Min(xl,tlin)                                         
+        xl = llin + zscrolln                                        
+        llin = Min(xl,tlin)                                         
+        vlin = Min(llin,tlin,(flin+vdepth))                         
+      End                                                           
+    End                                                             
+    When zverb = 'LEFT' Then Do                                     
+      If zscrolla = 'MAX' Then Do                                   
+        fcol = 1                                                    
+        lcol = Min(dynwidth,tcol)                                   
+      End                                                           
+      Else Do                                                       
+        xl = fcol - zscrolln + 1                                    
+        If Datatype(zscrolla) = 'NUM' Then xl = xl - 1              
+        fcol = Max(1,xl)                                            
+        lcol = fcol + dynwidth - 1                                  
+      End                                                           
+    End                                                             
+    When zverb = 'RIGHT' Then Do                                    
+      If zscrolla = 'MAX' Then Do                                   
+        fcol = tcol - dynwidth + 1                                  
+        lcol = tcol                                                 
+      End                                                           
+      Else Do                                                       
+        xl = fcol + zscrolln - 1                                    
+        If Datatype(zscrolla) = 'NUM' Then xl = xl + 1                
+        fcol = Min(xl,tcol)                                           
+        xl = lcol + zscrolln - 1                                      
+        If Datatype(zscrolla) = 'NUM' Then xl = xl + 1                
+        lcol = Min(xl,tcol)                                           
+      End                                                             
+    End                                                               
+    Otherwise Nop                                                     
+  End                                                                 
+End                                                                   
+dyndisp = ''                                                          
+shadow = ''                                                           
+Do i = flin To llin                                                   
+  dyndisp = (dyndisp) || ('03'x) || (Substr(line.i,fcol,dynwidth))    
+End                                                                   
+If disp_mode = 'CHAR' Then ,                                          
+ dyndisp = Translate(dyndisp,'++++|-oo','ABACBBBCFABFCCCB'x)          
+Else If disp_mode = 'GRAPHIC' Then Do                                 
+  shadow = Translate(dyndisp,'$$$$$$$$','ABACBBBCFABFCCCB'x)          
+  dyndisp = Translate(dyndisp,'DEMNesPG','ABACBBBCFABFCCCB'x)         
+End                                                                   
+Else Nop                                                              
+Return                                                                
+                                                                      
+/* -------------------------------------------------------------- *   
+ *                                                                *   
+ * -------------------------------------------------------------- */  
+zoom_zfs:                                                             
+rd = files.mnte_path.i                                                
+command = Substr(dyndisp,selected,1)                                  
+Upper command                                                         
+Select                                                                
+  When command = '/' | command = 'S' Then Do                          
+    Call Syscalls 'ON'                                                
+    Address Syscall 'chdir (rd)'                                      
+    Address Tso 'ISHELL'                                              
+    Address Syscall 'chdir (cwd)'                                     
+  End                                                                 
+  Otherwise Nop                                                      
+End                                                                  
+Return                                                               
+                                                                     
+/* -------------------------------------------------------------- *  
+ *                                                                *  
+ * -------------------------------------------------------------- */ 
+zfs_permissions:                                                     
+Arg curr                                                             
+rd = files.mnte_path.curr                                            
+sec.0 = '(---)'                                                      
+sec.1 = '(--x)'                                                      
+sec.2 = '(-w-)'                                                      
+sec.3 = '(-wx)'                                                      
+sec.4 = '(r--)'                                                      
+sec.5 = '(r-x)'                                                      
+sec.6 = '(rw-)'                                                      
+sec.7 = '(rwx)'                                                      
+Call Syscalls 'ON'                                                   
+Address Syscall 'stat (rd) prmbits.'                                 
+prmbits.st_mode = Right(prmbits.st_mode,4,'0')                       
+accstr = ''                                                          
+Do a = 2 To 4                                                        
+  el = Substr(prmbits.st_mode,a,1)                                   
+  accstr = accstr' 'sec.el                                           
+End                                                                  
+Address Tso                                                          
+Return                                                               
+                                                                     
+/* -------------------------------------------------------------- *  
+ *                                                                *  
+ * -------------------------------------------------------------- */ 
+add_info_box:                                                        
+Call Syscalls 'ON'                                                   
+Address Syscall 'geteuid'                                            
+euid = Retval                                                        
+Address Syscall 'getpwuid (euid) pwuid.'                             
+Address Tso                                                          
+infoline.2 = ('04'x) || 'OMVS-Userid:' || ,                          
+ ('05'x) || Word(pwuid.PW_UID,1) || ('03'x)                          
+l2 = Length(infoline.2)                                              
+infoline.3 = ('04'x) || 'Group:' || ,                                
+ ('05'x) || Word(pwuid.PW_GID,1) || ('03'x)                          
+l3 = Length(infoline.3)                                              
+infoline.4 = ('04'x) || 'Work-Dir:' || ,                             
+ ('05'x) || Word(pwuid.PW_DIR,1) || ('03'x)                          
+l4 = Length(infoline.4)                                              
+infoline.5 = ('04'x) || 'TSO/E Userid:' || ,                         
+ ('05'x) || Word(pwuid.PW_NAME,1) || ('03'x)                         
+l5 = Length(infoline.5)                                              
+info_len = Max(l2,l3,l4,l5)                                          
+Do info_i = 2 To 5                                                   
+  lastblk = Lastpos('05'x,infoline.info_i)                           
+  len = Length(infoline.info_i)                                      
+  fillen = info_len - len                                            
+  infoline.info_i = Insert(' ',infoline.info_i,lastblk,fillen,' ')   
+  infoline.info_i = ('FA'x) || (infoline.info_i) || ('FA'x)          
+End                                                                  
+infoline.1 = ('AC'x) || Substr('BF'x,1,info_len,'BF'x) || ('BC'x)    
+infoline.6 = ('AB'x) || Substr('BF'x,1,info_len,'BF'x) || ('BB'x)    
+Return                                                               
+                                                                     
+/* -------------------------------------------------------------- *  
+ * This is where we exit our program and perform some cleanup.    *  
+ * -------------------------------------------------------------- */ 
+tool_wrapup:                                                         
+Exit src                                                             
